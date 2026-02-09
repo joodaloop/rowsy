@@ -4,7 +4,7 @@ import * as Automerge from "@automerge/automerge";
 import { PartySocket } from "partysocket";
 import type { SheetDoc } from "~shared/schema";
 import { loadDocBytes, saveDocBytes } from "./persistence";
-import { migrateDoc } from "~shared/migrations";
+
 
 export function useSheet(sheetId: string) {
   let amDoc: Automerge.Doc<SheetDoc> = Automerge.init<SheetDoc>();
@@ -44,14 +44,21 @@ export function useSheet(sheetId: string) {
             if (updated.has(leafKey)) continue;
             let src = doc[top]?.[path[1]];
             let dst = d[top]?.[path[1]];
+            let canWalk = true;
             for (let i = 2; i < path.length - 1; i++) {
+              if (typeof dst !== "object" || dst === null) { canWalk = false; break; }
               if (!dst[path[i]]) dst[path[i]] = {};
               dst = dst[path[i]];
               src = src?.[path[i]];
             }
-            const last = path[path.length - 1];
-            dst[last] = JSON.parse(JSON.stringify(src?.[last]));
-            updated.add(leafKey);
+            if (canWalk && typeof dst === "object" && dst !== null) {
+              const last = path[path.length - 1];
+              dst[last] = JSON.parse(JSON.stringify(src?.[last]));
+              updated.add(leafKey);
+            } else {
+              d[top][path[1]] = JSON.parse(JSON.stringify(doc[top]?.[path[1]]));
+              updated.add(itemKey);
+            }
           }
         }
       }
@@ -95,8 +102,6 @@ export function useSheet(sheetId: string) {
     if (stored) {
       try {
         amDoc = Automerge.load<SheetDoc>(stored);
-        const { doc: migrated } = migrateDoc(amDoc, (d, fn) => Automerge.change(d, fn));
-        amDoc = migrated;
         syncStoreFromDoc();
       } catch {
         amDoc = Automerge.init<SheetDoc>();

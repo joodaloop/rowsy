@@ -2,7 +2,7 @@ import { routePartykitRequest, Server } from "partyserver";
 import type * as AutomergeTypes from "@automerge/automerge";
 import type { SheetDoc } from "../../shared/schema";
 import { newId } from "../../shared/ids";
-import { migrateDoc } from "../../shared/migrations";
+
 import { generateNKeysBetween } from "jittered-fractional-indexing";
 
 type Env = {
@@ -56,9 +56,7 @@ export class SheetServer extends Server<Env> {
     } else {
       this.doc = await makeInitialDoc();
     }
-    const { doc, applied } = migrateDoc(this.doc, (d, fn) => am.change(d, fn));
-    this.doc = doc;
-    if (!stored || applied.length > 0) {
+    if (!stored) {
       await this.persistDoc();
     }
     this.loaded = true;
