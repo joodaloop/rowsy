@@ -30,7 +30,6 @@ export default function CellEditor(props: Props) {
             const v = e.currentTarget.value;
             props.onChange(v === "" ? null : Number(v));
           }}
-          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
         />
       </Match>
 
@@ -49,7 +48,6 @@ export default function CellEditor(props: Props) {
           class="w-full h-9 bg-transparent px-2 text-sm text-zinc-200 outline-none focus:bg-zinc-800"
           value={typeof props.value === "string" ? props.value : ""}
           onBlur={(e) => props.onChange(e.currentTarget.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
         />
       </Match>
     </Switch>

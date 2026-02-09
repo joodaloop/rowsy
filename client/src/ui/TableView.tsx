@@ -94,45 +94,161 @@ export default function TableView(props: Props) {
     });
   }
 
-  function handleKeyDown(e: KeyboardEvent) {
-    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  let tableRef: HTMLDivElement | undefined;
 
-    const active = document.activeElement as HTMLElement | null;
-    if (!active) return;
-    const tr = active.closest("tr[data-row-id]");
-    if (!tr) return;
+  function getCellInput(rowIdx: number, colIdx: number): HTMLInputElement | null {
+    if (!tableRef) return null;
+    const rows = tableRef.querySelectorAll("tbody tr[data-row-id]");
+    const row = rows[rowIdx] as HTMLElement | undefined;
+    if (!row) return null;
+    const cells = row.querySelectorAll("td");
+    const cell = cells[colIdx + 1] as HTMLElement | undefined;
+    return cell?.querySelector("input") ?? null;
+  }
 
-    const rowId = (tr as HTMLElement).dataset.rowId!;
-    const direction = e.key === "ArrowUp" ? -1 : 1;
+  function getCellPosition(el: HTMLElement): { rowIdx: number; colIdx: number } | null {
+    const td = el.closest("td");
+    const tr = el.closest("tr[data-row-id]");
+    if (!td || !tr || !tableRef) return null;
+    const rows = tableRef.querySelectorAll("tbody tr[data-row-id]");
+    const rowIdx = Array.from(rows).indexOf(tr);
+    const colIdx = td.cellIndex - 1;
+    if (rowIdx < 0 || colIdx < 0) return null;
+    return { rowIdx, colIdx };
+  }
 
-    const td = active.closest("td");
-    const cellIndex = td ? td.cellIndex : -1;
-    const input = active as HTMLInputElement;
-    const selStart = input.selectionStart;
-    const selEnd = input.selectionEnd;
+  function focusCell(rowIdx: number, colIdx: number, cursorPos?: "start" | "end") {
+    const input = getCellInput(rowIdx, colIdx);
+    if (!input) return;
+    input.focus();
+    if (cursorPos === "start") {
+      input.setSelectionRange(0, 0);
+    } else if (cursorPos === "end") {
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
 
-    e.preventDefault();
-    moveRow(rowId, direction);
-
-    requestAnimationFrame(() => {
-      const newRow = document.querySelector(`tr[data-row-id="${rowId}"]`);
-      if (!newRow) return;
-      const newCell = newRow.children[cellIndex] as HTMLElement | undefined;
-      const newInput = newCell?.querySelector("input") as HTMLInputElement | null;
-      if (newInput) {
-        newInput.focus();
-        if (selStart != null && selEnd != null) {
-          newInput.setSelectionRange(selStart, selEnd);
-        }
-      }
+  function addRowAfter(currentRowIdx: number): string {
+    const rows = sortedRows();
+    const cols = sortedColumns();
+    const before = rows[currentRowIdx]?.order ?? null;
+    const after = currentRowIdx + 1 < rows.length ? rows[currentRowIdx + 1].order ?? null : null;
+    const id = newId();
+    const order = generateKeyBetween(before, after);
+    props.changeDoc((d) => {
+      ensureShape(d);
+      d.rows[id] = { id, order, values: {} };
     });
+    return id;
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    const active = document.activeElement as HTMLInputElement | null;
+    if (!active || !tableRef?.contains(active)) return;
+    const pos = getCellPosition(active);
+    if (!pos) return;
+
+    const numRows = sortedRows().length;
+    const numCols = sortedColumns().length;
+
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const tr = active.closest("tr[data-row-id]") as HTMLElement;
+      const rowId = tr.dataset.rowId!;
+      const direction = e.key === "ArrowUp" ? -1 : 1;
+      const selStart = active.selectionStart;
+      const selEnd = active.selectionEnd;
+
+      e.preventDefault();
+      moveRow(rowId, direction);
+
+      requestAnimationFrame(() => {
+        const newRow = document.querySelector(`tr[data-row-id="${rowId}"]`);
+        if (!newRow) return;
+        const newCell = newRow.children[pos.colIdx + 1] as HTMLElement | undefined;
+        const newInput = newCell?.querySelector("input") as HTMLInputElement | null;
+        if (newInput) {
+          newInput.focus();
+          if (selStart != null && selEnd != null) {
+            newInput.setSelectionRange(selStart, selEnd);
+          }
+        }
+      });
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      active.blur();
+      addRowAfter(pos.rowIdx);
+      requestAnimationFrame(() => focusCell(pos.rowIdx + 1, 0, "start"));
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      active.blur();
+      let nextRow = pos.rowIdx;
+      let nextCol = pos.colIdx + 1;
+      if (nextCol >= numCols) {
+        nextCol = 0;
+        nextRow++;
+      }
+      if (nextRow < numRows) {
+        requestAnimationFrame(() => focusCell(nextRow, nextCol, "start"));
+      }
+      return;
+    }
+
+    if (e.key === "ArrowRight" && active.selectionStart === active.value.length && active.selectionEnd === active.value.length) {
+      let nextRow = pos.rowIdx;
+      let nextCol = pos.colIdx + 1;
+      if (nextCol >= numCols) {
+        nextCol = 0;
+        nextRow++;
+      }
+      if (nextRow < numRows) {
+        e.preventDefault();
+        focusCell(nextRow, nextCol, "start");
+      }
+      return;
+    }
+
+    if (e.key === "ArrowLeft" && active.selectionStart === 0 && active.selectionEnd === 0) {
+      let prevRow = pos.rowIdx;
+      let prevCol = pos.colIdx - 1;
+      if (prevCol < 0) {
+        prevCol = numCols - 1;
+        prevRow--;
+      }
+      if (prevRow >= 0) {
+        e.preventDefault();
+        focusCell(prevRow, prevCol, "end");
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (pos.rowIdx + 1 < numRows) {
+        e.preventDefault();
+        focusCell(pos.rowIdx + 1, pos.colIdx, "start");
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      if (pos.rowIdx - 1 >= 0) {
+        e.preventDefault();
+        focusCell(pos.rowIdx - 1, pos.colIdx, "start");
+      }
+      return;
+    }
   }
 
   onMount(() => document.addEventListener("keydown", handleKeyDown));
   onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
 
   return (
-    <div class="min-w-max">
+    <div class="min-w-max" ref={tableRef}>
       <table class="w-full border-collapse">
         <thead>
           <tr class="bg-zinc-900 sticky top-0 z-10">
