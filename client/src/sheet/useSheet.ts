@@ -25,39 +25,66 @@ export function useSheet(sheetId: string) {
     const doc = amDoc as any;
     const updated = new Set<string>();
     setStore(produce((d: any) => {
-      for (const { path } of patches) {
+      for (const patch of patches) {
+        const { path, action } = patch as { path: (string | number)[]; action: string };
         if (path.length === 0) continue;
         const top = String(path[0]);
         if (updated.has(top)) continue;
-        if (path.length <= 2) {
+
+        if (action === "del") {
+          const last = path[path.length - 1];
+          if (path.length === 2) {
+            delete d[top][last];
+          } else if (path.length >= 3) {
+            let target = d[top]?.[path[1]];
+            for (let i = 2; i < path.length - 1; i++) {
+              target = target?.[path[i]];
+            }
+            if (typeof target === "object" && target !== null) {
+              delete target[last];
+            }
+          }
+          continue;
+        }
+
+        if (path.length === 1) {
           d[top] = JSON.parse(JSON.stringify(doc[top]));
           updated.add(top);
         } else {
           const itemKey = `${top}.${path[1]}`;
           if (updated.has(itemKey)) continue;
           if (!d[top]) d[top] = {};
-          if (path.length <= 3) {
-            d[top][path[1]] = JSON.parse(JSON.stringify(doc[top]?.[path[1]]));
+          let src = doc[top]?.[path[1]];
+          let dst = d[top]?.[path[1]];
+          if (path.length === 2 || !dst || typeof dst !== "object") {
+            d[top][path[1]] = JSON.parse(JSON.stringify(src));
             updated.add(itemKey);
           } else {
-            const leafKey = `${itemKey}.${path.slice(2).join(".")}`;
-            if (updated.has(leafKey)) continue;
-            let src = doc[top]?.[path[1]];
-            let dst = d[top]?.[path[1]];
-            let canWalk = true;
+            let parentDst = dst;
+            let parentSrc = src;
+            let lastKey: string | number = path[path.length - 1];
             for (let i = 2; i < path.length - 1; i++) {
-              if (typeof dst !== "object" || dst === null) { canWalk = false; break; }
-              if (!dst[path[i]]) dst[path[i]] = {};
-              dst = dst[path[i]];
+              if (typeof dst !== "object" || dst === null) break;
+              const next = dst[path[i]];
+              if (typeof next !== "object" || next === null) {
+                lastKey = path[i];
+                parentDst = dst;
+                parentSrc = src;
+                break;
+              }
+              parentDst = dst;
+              parentSrc = src;
+              lastKey = path[i];
+              dst = next;
               src = src?.[path[i]];
+              if (i === path.length - 2) {
+                parentDst = dst;
+                parentSrc = src;
+                lastKey = path[path.length - 1];
+              }
             }
-            if (canWalk && typeof dst === "object" && dst !== null) {
-              const last = path[path.length - 1];
-              dst[last] = JSON.parse(JSON.stringify(src?.[last]));
-              updated.add(leafKey);
-            } else {
-              d[top][path[1]] = JSON.parse(JSON.stringify(doc[top]?.[path[1]]));
-              updated.add(itemKey);
+            if (typeof parentDst === "object" && parentDst !== null) {
+              parentDst[lastKey] = JSON.parse(JSON.stringify(parentSrc?.[lastKey]));
             }
           }
         }
