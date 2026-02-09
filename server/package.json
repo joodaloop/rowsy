@@ -1,0 +1,14 @@
+{
+  "name": "rows-server",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@automerge/automerge": "^3.2.3",
+    "partyserver": "^0.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250129.0",
+    "wrangler": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

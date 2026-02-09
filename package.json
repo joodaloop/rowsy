@@ -1,0 +1,11 @@
+{
+  "name": "rows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:client": "cd client && bunx --bun vite",
+    "dev:server": "cd server && bunx wrangler dev",
+    "build:client": "cd client && bunx --bun vite build",
+    "deploy": "cd server && bunx wrangler deploy"
+  }
+}

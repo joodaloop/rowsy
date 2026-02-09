@@ -1,0 +1,27 @@
+{
+  "name": "rows",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": {
+    "port": 8787
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SHEETS",
+        "class_name": "SheetServer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["SheetServer"]
+    }
+  ],
+  "assets": {
+    "directory": "../client/dist",
+    "not_found_handling": "single-page-application"
+  }
+}
