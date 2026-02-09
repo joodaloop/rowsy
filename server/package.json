@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@automerge/automerge": "^3.2.3",
+    "jittered-fractional-indexing": "^1.0.0",
     "partyserver": "^0.1.5"
   },
   "devDependencies": {

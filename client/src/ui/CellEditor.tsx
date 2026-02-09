@@ -43,19 +43,6 @@ export default function CellEditor(props: Props) {
         />
       </Match>
 
-      <Match when={props.column.type === "select"}>
-        <select
-          class="w-full h-9 bg-transparent px-2 text-sm text-zinc-200 outline-none focus:bg-zinc-800 cursor-pointer [color-scheme:dark]"
-          value={typeof props.value === "string" ? props.value : ""}
-          onChange={(e) => props.onChange(e.currentTarget.value || null)}
-        >
-          <option value="">—</option>
-          {(props.column.options ?? []).map((opt) => (
-            <option value={opt.id}>{opt.label}</option>
-          ))}
-        </select>
-      </Match>
-
       <Match when={props.column.type === "text"}>
         <input
           type="text"

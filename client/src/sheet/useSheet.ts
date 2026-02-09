@@ -3,30 +3,15 @@ import { createStore, produce } from "solid-js/store";
 import * as Automerge from "@automerge/automerge";
 import { PartySocket } from "partysocket";
 import type { SheetDoc } from "~shared/schema";
-import { newId } from "~shared/ids";
 import { loadDocBytes, saveDocBytes } from "./persistence";
-
-function makeInitialDoc(): Automerge.Doc<SheetDoc> {
-  return Automerge.change(Automerge.init<SheetDoc>(), (d) => {
-    d.meta = { name: "Untitled Sheet", schemaVersion: 1 };
-    d.columns = [];
-    d.rows = [];
-    const col1 = { id: newId(), name: "Name", type: "text" as const };
-    const col2 = { id: newId(), name: "Status", type: "select" as const, options: [] };
-    d.columns.push(col1);
-    d.columns.push(col2);
-    for (let i = 0; i < 3; i++) {
-      d.rows.push({ id: newId(), values: {} });
-    }
-  });
-}
+import { migrateDoc } from "~shared/migrations";
 
 export function useSheet(sheetId: string) {
   let amDoc: Automerge.Doc<SheetDoc> = Automerge.init<SheetDoc>();
   const [store, setStore] = createStore<SheetDoc>({
-    meta: { name: "", schemaVersion: 0 },
-    columns: [],
-    rows: [],
+    meta: { name: "" },
+    columns: {},
+    rows: {},
   });
   const [connected, setConnected] = createSignal(false);
   const [ready, setReady] = createSignal(false);
@@ -36,12 +21,45 @@ export function useSheet(sheetId: string) {
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   function applyPatchesToStore(patches: Automerge.Patch[]) {
-    setStore(produce((d) => Automerge.applyPatches(d, patches)));
+    if (patches.length === 0) return;
+    const doc = amDoc as any;
+    const updated = new Set<string>();
+    setStore(produce((d: any) => {
+      for (const { path } of patches) {
+        if (path.length === 0) continue;
+        const top = String(path[0]);
+        if (updated.has(top)) continue;
+        if (path.length <= 2) {
+          d[top] = JSON.parse(JSON.stringify(doc[top]));
+          updated.add(top);
+        } else {
+          const itemKey = `${top}.${path[1]}`;
+          if (updated.has(itemKey)) continue;
+          if (!d[top]) d[top] = {};
+          if (path.length <= 3) {
+            d[top][path[1]] = JSON.parse(JSON.stringify(doc[top]?.[path[1]]));
+            updated.add(itemKey);
+          } else {
+            const leafKey = `${itemKey}.${path.slice(2).join(".")}`;
+            if (updated.has(leafKey)) continue;
+            let src = doc[top]?.[path[1]];
+            let dst = d[top]?.[path[1]];
+            for (let i = 2; i < path.length - 1; i++) {
+              if (!dst[path[i]]) dst[path[i]] = {};
+              dst = dst[path[i]];
+              src = src?.[path[i]];
+            }
+            const last = path[path.length - 1];
+            dst[last] = JSON.parse(JSON.stringify(src?.[last]));
+            updated.add(leafKey);
+          }
+        }
+      }
+    }));
   }
 
-  function loadIntoStore(doc: Automerge.Doc<SheetDoc>) {
-    amDoc = doc;
-    const patches = Automerge.diff(doc, [], Automerge.getHeads(doc));
+  function syncStoreFromDoc() {
+    const patches = Automerge.diff(amDoc, [], Automerge.getHeads(amDoc));
     applyPatchesToStore(patches);
   }
 
@@ -65,9 +83,9 @@ export function useSheet(sheetId: string) {
   }
 
   function changeDoc(fn: Automerge.ChangeFn<SheetDoc>) {
-    amDoc = Automerge.change(amDoc, {
-      patchCallback: (patches) => applyPatchesToStore(patches),
-    }, fn);
+    const before = Automerge.getHeads(amDoc);
+    amDoc = Automerge.change(amDoc, fn);
+    applyPatchesToStore(Automerge.diff(amDoc, before, Automerge.getHeads(amDoc)));
     sendSync();
     scheduleSave();
   }
@@ -76,12 +94,13 @@ export function useSheet(sheetId: string) {
     const stored = await loadDocBytes(sheetId);
     if (stored) {
       try {
-        loadIntoStore(Automerge.load<SheetDoc>(stored));
+        amDoc = Automerge.load<SheetDoc>(stored);
+        const { doc: migrated } = migrateDoc(amDoc, (d, fn) => Automerge.change(d, fn));
+        amDoc = migrated;
+        syncStoreFromDoc();
       } catch {
-        loadIntoStore(makeInitialDoc());
+        amDoc = Automerge.init<SheetDoc>();
       }
-    } else {
-      loadIntoStore(makeInitialDoc());
     }
     setReady(true);
 
@@ -105,14 +124,15 @@ export function useSheet(sheetId: string) {
     ws.addEventListener("message", (event) => {
       if (typeof event.data === "string") return;
       const msgBytes = new Uint8Array(event.data as ArrayBuffer);
+      const before = Automerge.getHeads(amDoc);
       const [newDoc, newState] = Automerge.receiveSyncMessage(
         amDoc,
         syncState,
         msgBytes,
-        { patchCallback: (patches) => applyPatchesToStore(patches) }
       );
       amDoc = newDoc;
       syncState = newState;
+      applyPatchesToStore(Automerge.diff(amDoc, before, Automerge.getHeads(amDoc)));
       sendSync();
       scheduleSave();
     });

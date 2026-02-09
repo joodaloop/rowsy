@@ -2,6 +2,8 @@ import { routePartykitRequest, Server } from "partyserver";
 import type * as AutomergeTypes from "@automerge/automerge";
 import type { SheetDoc } from "../../shared/schema";
 import { newId } from "../../shared/ids";
+import { migrateDoc } from "../../shared/migrations";
+import { generateNKeysBetween } from "jittered-fractional-indexing";
 
 type Env = {
   SHEETS: DurableObjectNamespace<SheetServer>;
@@ -11,15 +13,7 @@ type Env = {
 let Automerge: typeof AutomergeTypes;
 async function getAutomerge() {
   if (!Automerge) {
-    console.log("[SheetServer] loading Automerge...");
-    try {
-      Automerge = await import("@automerge/automerge");
-      console.log("[SheetServer] Automerge loaded OK");
-    } catch (e: any) {
-      console.error("[SheetServer] Automerge import FAILED:", e);
-      console.error("[SheetServer] Automerge import stack:", e?.stack);
-      throw e;
-    }
+    Automerge = await import("@automerge/automerge");
   }
   return Automerge;
 }
@@ -27,15 +21,20 @@ async function getAutomerge() {
 async function makeInitialDoc(): Promise<AutomergeTypes.Doc<SheetDoc>> {
   const am = await getAutomerge();
   return am.change(am.init<SheetDoc>(), (d) => {
-    d.meta = { name: "Untitled Sheet", schemaVersion: 1 };
-    d.columns = [];
-    d.rows = [];
-    const col1 = { id: newId(), name: "Name", type: "text" as const };
-    const col2 = { id: newId(), name: "Status", type: "select" as const, options: [] };
-    d.columns.push(col1);
-    d.columns.push(col2);
+    d.meta = { name: "Untitled Sheet" };
+    d.columns = {};
+    d.rows = {};
+
+    const colOrders = generateNKeysBetween(null, null, 2);
+    const col1Id = newId();
+    const col2Id = newId();
+    d.columns[col1Id] = { id: col1Id, name: "Name", type: "text", order: colOrders[0] };
+    d.columns[col2Id] = { id: col2Id, name: "Done", type: "checkbox", order: colOrders[1] };
+
+    const rowOrders = generateNKeysBetween(null, null, 3);
     for (let i = 0; i < 3; i++) {
-      d.rows.push({ id: newId(), values: {} });
+      const rowId = newId();
+      d.rows[rowId] = { id: rowId, order: rowOrders[i], values: {} };
     }
   });
 }
@@ -51,11 +50,15 @@ export class SheetServer extends Server<Env> {
   private async ensureLoaded() {
     if (this.loaded) return;
     const am = await getAutomerge();
-    const stored = await this.ctx.storage.get<number[]>("doc");
+    const stored = await this.ctx.storage.get<Uint8Array>("doc");
     if (stored) {
-      this.doc = am.load<SheetDoc>(new Uint8Array(stored));
+      this.doc = am.load<SheetDoc>(stored);
     } else {
       this.doc = await makeInitialDoc();
+    }
+    const { doc, applied } = migrateDoc(this.doc, (d, fn) => am.change(d, fn));
+    this.doc = doc;
+    if (!stored || applied.length > 0) {
       await this.persistDoc();
     }
     this.loaded = true;
@@ -64,7 +67,7 @@ export class SheetServer extends Server<Env> {
   private async persistDoc() {
     const am = await getAutomerge();
     const bytes = am.save(this.doc);
-    await this.ctx.storage.put("doc", Array.from(bytes));
+    await this.ctx.storage.put("doc", bytes);
   }
 
   private scheduleSave() {
@@ -88,18 +91,13 @@ export class SheetServer extends Server<Env> {
   }
 
   async onConnect(connection: import("partyserver").Connection) {
-    console.log("[SheetServer] onConnect called, id:", connection.id);
     try {
       const am = await getAutomerge();
-      console.log("[SheetServer] Automerge ready, loading doc...");
       await this.ensureLoaded();
-      console.log("[SheetServer] doc loaded, sending sync...");
       this.syncStates.set(connection.id, am.initSyncState());
       this.sendSyncMessages(connection.id, connection, am);
-      console.log("[SheetServer] onConnect done OK");
     } catch (e: any) {
       console.error("[SheetServer] onConnect error:", e);
-      console.error("[SheetServer] onConnect stack:", e?.stack);
       connection.send(JSON.stringify({ error: String(e) }));
     }
   }
@@ -138,7 +136,6 @@ export class SheetServer extends Server<Env> {
       this.scheduleSave();
     } catch (e: any) {
       console.error("[SheetServer] onMessage error:", e);
-      console.error("[SheetServer] onMessage stack:", e?.stack);
     }
   }
 
@@ -150,7 +147,6 @@ export class SheetServer extends Server<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    console.log("[SheetServer] fetch:", request.method, url.pathname, "upgrade:", request.headers.get("upgrade"));
 
     if (url.pathname === "/new") {
       const id = newId();
@@ -158,7 +154,6 @@ export default {
     }
 
     const partyResponse = await routePartykitRequest(request, env);
-    console.log("[SheetServer] routePartykitRequest returned:", partyResponse ? partyResponse.status : "null");
     if (partyResponse) return partyResponse;
 
     if (env.ASSETS) return env.ASSETS.fetch(request);

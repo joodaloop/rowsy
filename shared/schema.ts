@@ -1,25 +1,20 @@
-export type ColumnType = "text" | "number" | "checkbox" | "date" | "select";
-
-export type SelectOption = {
-  id: string;
-  label: string;
-  color: string;
-};
+export type ColumnType = "text" | "number" | "checkbox" | "date";
 
 export type Column = {
   id: string;
   name: string;
   type: ColumnType;
-  options?: SelectOption[];
+  order: string;
 };
 
 export type Row = {
   id: string;
+  order: string;
   values: Record<string, unknown>;
 };
 
 export type SheetDoc = {
-  meta: { name: string; schemaVersion: number };
-  columns: Column[];
-  rows: Row[];
+  meta: { name: string };
+  columns: Record<string, Column>;
+  rows: Record<string, Row>;
 };
