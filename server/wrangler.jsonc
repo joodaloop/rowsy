@@ -1,5 +1,5 @@
 {
-  "name": "rows",
+  "name": "rowsy",
   "main": "src/worker.ts",
   "compatibility_date": "2025-02-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -17,11 +17,12 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["SheetServer"]
+      "new_sqlite_classes": ["SheetServer"]
     }
   ],
   "assets": {
     "directory": "../client/dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   }
 }

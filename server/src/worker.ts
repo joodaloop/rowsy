@@ -29,7 +29,7 @@ async function makeInitialDoc(): Promise<AutomergeTypes.Doc<SheetDoc>> {
     const col1Id = newId();
     const col2Id = newId();
     d.columns[col1Id] = { id: col1Id, name: "Name", type: "text", order: colOrders[0] };
-    d.columns[col2Id] = { id: col2Id, name: "Done", type: "checkbox", order: colOrders[1] };
+    d.columns[col2Id] = { id: col2Id, name: "Status", type: "text", order: colOrders[1] };
 
     const rowOrders = generateNKeysBetween(null, null, 3);
     for (let i = 0; i < 3; i++) {
@@ -144,17 +144,16 @@ export class SheetServer extends Server<Env> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/new") {
-      const id = newId();
-      return Response.redirect(new URL(`/${id}`, url.origin).toString(), 302);
-    }
-
     const partyResponse = await routePartykitRequest(request, env);
     if (partyResponse) return partyResponse;
 
-    if (env.ASSETS) return env.ASSETS.fetch(request);
+    if (env.ASSETS) {
+      const res = await env.ASSETS.fetch(request);
+      if (res.status === 404) {
+        return env.ASSETS.fetch(new URL("/index.html", request.url));
+      }
+      return res;
+    }
     return new Response("Not Found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
